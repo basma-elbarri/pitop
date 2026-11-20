@@ -5,6 +5,7 @@ Modes:
   look   - head (pan/tilt servos) tracks the nearest face, wheels stay still
   follow - head tracks the nearest face AND the robot drives up to it
 """
+import os
 import threading
 import time
 
@@ -33,6 +34,28 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
+def _find_cascade():
+    """Locate haarcascade_frontalface_default.xml (Debian's OpenCV has no cv2.data)."""
+    name = "haarcascade_frontalface_default.xml"
+    candidates = []
+    data = getattr(cv2, "data", None)
+    if data is not None:
+        candidates.append(data.haarcascades + name)
+    candidates += [
+        "/usr/share/opencv4/haarcascades/" + name,
+        "/usr/share/opencv/haarcascades/" + name,
+        "/usr/local/share/opencv4/haarcascades/" + name,
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), name),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    raise RuntimeError(
+        "Face detection file not found. Run: sudo apt install opencv-data   "
+        "or find it with: find / -name '" + name + "' 2>/dev/null"
+    )
+
+
 class Follower:
     MODES = ("manual", "look", "follow")
 
@@ -45,9 +68,9 @@ class Follower:
         self.cap = cv2.VideoCapture(CAMERA_INDEX)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-        self.cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
+        self.cascade = cv2.CascadeClassifier(_find_cascade())
+        if self.cascade.empty():
+            raise RuntimeError("Could not load the face detection file (haarcascade)")
 
         self._cond = threading.Condition()
         self._jpeg = None
